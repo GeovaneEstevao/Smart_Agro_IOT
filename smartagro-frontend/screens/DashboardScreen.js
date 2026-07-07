@@ -3,42 +3,14 @@ import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Dimensions } from
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { LineChart } from "react-native-chart-kit";
-import { API_URL } from "../config";
 
 
 export default function DashboardScreen({ navigation }) {
-  const [leituras, setLeituras] = useState([]);
-
-  useEffect(() => {
-    let active = true;
-
-    const carregarDados = async () => {
-      try {
-        const response = await fetch(`${API_URL}/sensores/atual`);
-        const data = await response.json();
-
-        if (!active) return;
-
-        const leituraAtual = [{
-          data: new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }),
-          umidade: Number(data?.umidade?.valor ?? 0),
-          temperatura: Number(data?.temperatura?.valor ?? 0),
-          nivelAgua: Number(data?.nivel_agua?.valor ?? 0),
-        }];
-
-        setLeituras(leituraAtual);
-      } catch (error) {
-        console.warn("Erro ao buscar leituras do backend", error);
-      }
-    };
-
-    carregarDados();
-    const intervalId = setInterval(carregarDados, 5000);
-    return () => {
-      active = false;
-      clearInterval(intervalId);
-    };
-  }, []);
+  const [leituras] = useState([
+    { data: "26/07", umidade: 65, temperatura: 29 },
+    { data: "25/07", umidade: 70, temperatura: 28 },
+    { data: "24/07", umidade: 60, temperatura: 27 },
+  ]);
 
   const menuItems = [
     { icon: "speedometer-outline", title: "Telemetria", screen: "Telemetria" },
@@ -75,44 +47,37 @@ export default function DashboardScreen({ navigation }) {
         {/* Gráfico de Umidade */}
         <View style={styles.chartContainer}>
           <Text style={styles.sectionTitle}>Variação de Umidade (%)</Text>
-          {leituras.length > 0 ? (
-            <LineChart
-              data={{
-                labels: leituras.map((l) => l.data),
-                datasets: [{ data: leituras.map((l) => l.umidade) }],
-              }}
-              width={Dimensions.get("window").width - 40}
-              height={220}
-              yAxisSuffix="%"
-              chartConfig={{
-                backgroundColor: "#fff",
-                backgroundGradientFrom: "#f0fdf4",
-                backgroundGradientTo: "#bbf7d0",
-                decimalPlaces: 0,
-                color: (opacity = 1) => `rgba(22, 163, 74, ${opacity})`,
-                labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-                style: { borderRadius: 12 },
-              }}
-              style={{ borderRadius: 12 }}
-            />
-          ) : (
-            <Text style={styles.emptyText}>Aguardando primeiras leituras do ESP32...</Text>
-          )}
+          <LineChart
+            data={{
+              labels: leituras.map(l => l.data),
+              datasets: [{ data: leituras.map(l => l.umidade) }],
+            }}
+            width={Dimensions.get("window").width - 40}
+            height={220}
+            yAxisSuffix="%"
+            chartConfig={{
+              backgroundColor: "#fff",
+              backgroundGradientFrom: "#f0fdf4",
+              backgroundGradientTo: "#bbf7d0",
+              decimalPlaces: 0,
+              color: (opacity = 1) => `rgba(22, 163, 74, ${opacity})`,
+              labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+              style: { borderRadius: 12 },
+            }}
+            style={{ borderRadius: 12 }}
+          />
         </View>
 
         {/* Últimas Leituras */}
         <View style={styles.readingsContainer}>
           <Text style={styles.sectionTitle}>Últimas Leituras</Text>
-          {leituras.length > 0 ? leituras.map((item, i) => (
+          {leituras.map((item, i) => (
             <View key={i} style={styles.readingItem}>
               <Text style={styles.readingText}>{item.data}</Text>
               <Text style={styles.readingText}>🌡 {item.temperatura}°C</Text>
               <Text style={styles.readingText}>💧 {item.umidade}%</Text>
-              <Text style={styles.readingText}>💦 {item.nivelAgua}%</Text>
             </View>
-          )) : (
-            <Text style={styles.emptyText}>Nenhuma leitura recebida ainda.</Text>
-          )}
+          ))}
         </View>
 
         {/* Botão Logout */}
@@ -159,7 +124,6 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   sectionTitle: { fontSize: 18, fontWeight: "bold", color: "#15803d", marginBottom: 10 },
-  emptyText: { fontSize: 14, color: "#6b7280", marginTop: 6 },
   readingsContainer: { backgroundColor: "#fff", borderRadius: 12, padding: 10, width: "100%", marginBottom: 20 },
   readingItem: {
     flexDirection: "row",

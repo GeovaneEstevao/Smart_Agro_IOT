@@ -4,20 +4,6 @@ const jwt = require('jsonwebtoken');
 const knex = require('../config/db');
 const router = express.Router();
 
-async function ensureSensorSchema() {
-  const hasLeituras = await knex.schema.hasTable('leituras');
-  if (!hasLeituras) {
-    await knex.schema.createTable('leituras', (table) => {
-      table.increments('id').primary();
-      table.string('sensor_id').notNullable();
-      table.float('valor').notNullable();
-      table.string('unidade').defaultTo('');
-      table.string('topic').nullable();
-      table.timestamp('data_hora').defaultTo(knex.fn.now());
-    });
-  }
-}
-
 async function ensureSchema() {
   const hasUsuarios = await knex.schema.hasTable('usuarios');
   if (!hasUsuarios) {
@@ -58,15 +44,11 @@ async function ensureSchema() {
       table.string('acao').notNullable();
     });
   }
-
-  await ensureSensorSchema();
 }
 
 ensureSchema().catch((err) => {
   console.error('Erro ao inicializar schema do backend:', err);
 });
-
-router.use('/sensores', require('./sensores'));
 
 router.get('/health', (req, res) => {
   res.json({ ok: true, message: 'Backend online' });
