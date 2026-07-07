@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LineChart } from "react-native-chart-kit";
 import { API_URL } from "../config";
 
+
 export default function DashboardScreen({ navigation }) {
   const [leituras, setLeituras] = useState([]);
 
