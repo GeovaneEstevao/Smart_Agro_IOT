@@ -1,43 +1,55 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+// Certifique-se de ter instalado com: npm install mqtt
 import init from "mqtt"; 
 
 export default function Telemetria() {
   const [dados, setDados] = useState({
-    temp: "0.0",
-    hum: "0.0",
-    soil_pct: "0",
-    water_pct: "0", // O HC-SR04 mede distância (podemos inverter para porcentagem ou mostrar em cm)
-    pump: false,    // Mapeado para o estado do LED/Bomba do seu ESP32
-    mode: "AUTO",   // Valor padrão fixo já que o ESP não envia o modo
+    temp: "---",
+    hum: "---",
+    soil_pct: "---",
+    water_pct: "---",
+    pump: false,
+    mode: "AUTO",
   });
 
-  const [statusConexao, setStatusConexao] = useState("Conectando...");
+  const [statusConexao, setStatusConexao] = useState("Iniciando...");
 
   useEffect(() => {
+    // 🖥️ Como você está no PC, o navegador precisa usar o protocolo "ws" (WebSocket)
+    // Apontamos para o IP do seu Broker. A porta de WebSockets padrão do Mosquitto é a 9001.
     const brokerUrl = "ws://10.44.1.35:9001"; 
-    const clientId = "rn_smart_agro_" + Math.random().toString(16).substr(2, 8);
+    const clientId = "rn_pc_agro_" + Math.random().toString(16).substring(2, 10);
 
-    console.log("Conectando ao Broker MQTT...");
-    const client = init.connect(brokerUrl, { clientId });
+    console.log(`[Front-End] Tentando conectar via WebSocket em: ${brokerUrl}`);
+    setStatusConexao("Conectando ao Broker...");
+
+    const client = init.connect(brokerUrl, { 
+      clientId,
+      connectTimeout: 5000,
+      reconnectPeriod: 2000
+    });
 
     client.on("connect", () => {
-      setStatusConexao("Conectado");
-      console.log("Conectado ao MQTT!");
+      setStatusConexao("Conectado ao Broker");
+      console.log("%c[MQTT] SUCESSO: Conectado com o Broker no PC!", "color: #4ade80; font-weight: bold;");
       
-      // Se inscreve em todos os tópicos que o seu ESP32 publica
-      client.subscribe("ifrn/SmartAgro/temperatura");
-      client.subscribe("ifrn/SmartAgro/umidade_ar");
-      client.subscribe("ifrn/SmartAgro/umidade_solo");
-      client.subscribe("ifrn/SmartAgro/distancia_cm");
-      client.subscribe("ifrn/SmartAgro/alerta");
+      // Inscreve em toda a árvore do SmartAgro para garantir que tudo chegue
+      client.subscribe("ifrn/SmartAgro/#", (err) => {
+        if (!err) {
+          console.log("[MQTT] Escutando todos os tópicos do SmartAgro.");
+        }
+      });
     });
 
     client.on("message", (topic, message) => {
       const valor = message.toString();
       
+      // IMPORTANTE: Abra o F12 do navegador para ver esse log rodando em tempo real!
+      console.log(`📡 [DADO REAL DO ESP] Tópico: ${topic} | Valor: ${valor}`);
+
       setDados((dadosAnteriores) => {
         switch (topic) {
           case "ifrn/SmartAgro/temperatura":
@@ -47,10 +59,8 @@ export default function Telemetria() {
           case "ifrn/SmartAgro/umidade_solo":
             return { ...dadosAnteriores, soil_pct: valor };
           case "ifrn/SmartAgro/distancia_cm":
-            // O HC-SR04 dá a distância em cm. Vamos salvar direto no campo que era do reservatório.
             return { ...dadosAnteriores, water_pct: valor };
           case "ifrn/SmartAgro/alerta":
-            // Se o alerta for "PROXIMO", consideramos a bomba/led ativa
             return { ...dadosAnteriores, pump: valor === "PROXIMO" };
           default:
             return dadosAnteriores;
@@ -59,19 +69,16 @@ export default function Telemetria() {
     });
 
     client.on("error", (err) => {
-      console.error("Erro MQTT:", err);
-      setStatusConexao("Erro de Conexão");
+      console.error("[MQTT] Erro detectado no front-end:", err);
+      setStatusConexao("Erro na conexão");
     });
 
     client.on("close", () => {
-      setStatusConexao("Desconectado");
+      setStatusConexao("Desconectado do Broker");
     });
 
-    // Limpa a conexão ao fechar o app/tela
     return () => {
-      if (client) {
-        client.end();
-      }
+      if (client) client.end();
     };
   }, []);
 
@@ -79,23 +86,33 @@ export default function Telemetria() {
     <View style={styles.card} key={label}>
       <Ionicons name={icon} size={28} color="#16a34a" />
       <Text style={styles.cardLabel}>{label}</Text>
-      <Text style={styles.cardValue}>{value}{unit}</Text>
+      <Text style={styles.cardValue}>
+        {value}
+        {value !== "---" && value !== "Erro" ? unit : ""}
+      </Text>
     </View>
   );
 
   return (
     <LinearGradient colors={["#16a34a", "#15803d"]} style={styles.gradient}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>📡 Telemetria em Tempo Real</Text>
-        <Text style={styles.subtitle}>Status Broker: {statusConexao}</Text>
+        <Text style={styles.title}>📡 Telemetria Real-Time</Text>
+        
+        <View style={styles.statusBadge}>
+          {statusConexao === "Conectado ao Broker" ? (
+            <View style={[styles.dot, { backgroundColor: '#4ade80' }]} />
+          ) : (
+            <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
+          )}
+          <Text style={styles.subtitle}>{statusConexao}</Text>
+        </View>
         
         <View style={styles.grid}>
           {renderCard("thermometer-outline", "Temperatura", dados.temp, " °C")}
           {renderCard("water-outline", "Umidade Ar", dados.hum, " %")}
-          {renderCard("leaf-outline", "Umidade do Solo", dados.soil_pct, " %")}
-          {/* Mudado de % para cm já que o HC-SR04 mede distância livre até o sensor */}
-          {renderCard("cube-outline", "Nível da Água", dados.water_pct, " cm")}
-          {renderCard("power-outline", "Alerta / Bomba", dados.pump ? "Ligada" : "Desligada")}
+          {renderCard("leaf-outline", "Umidade Solo", dados.soil_pct, " %")}
+          {renderCard("cube-outline", "Distância", dados.water_pct, " cm")}
+          {renderCard("power-outline", "Bomba / Alerta", dados.pump ? "Ligada" : "Desligada")}
           {renderCard("cog-outline", "Modo", dados.mode.toUpperCase())}
         </View>
       </ScrollView>
@@ -106,25 +123,20 @@ export default function Telemetria() {
 const styles = StyleSheet.create({
   gradient: { flex: 1 },
   container: { padding: 20, alignItems: "center" },
-  title: {
-    fontSize: 24,
-    fontWeight: "bold",
-    marginBottom: 5,
-    color: "#fff",
-    textAlign: "center",
-  },
-  subtitle: {
-    fontSize: 14,
-    color: "#e2e8f0",
+  title: { fontSize: 24, fontWeight: "bold", color: "#fff", textAlign: "center", marginTop: 10 },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.2)',
+    paddingHorizontal: 15,
+    paddingVertical: 6,
+    borderRadius: 20,
+    marginTop: 8,
     marginBottom: 20,
-    fontStyle: "italic",
   },
-  grid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "space-between",
-    width: "100%",
-  },
+  dot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
+  subtitle: { fontSize: 13, color: "#fff", fontWeight: "500" },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", width: "100%" },
   card: {
     width: "45%",
     backgroundColor: "#fff",
@@ -132,11 +144,8 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     alignItems: "center",
     marginBottom: 15,
-    shadowColor: "#000",
-    shadowOpacity: 0.15,
-    shadowRadius: 3,
     elevation: 3,
   },
-  cardLabel: { fontSize: 14, color: "#15803d", marginTop: 8 },
+  cardLabel: { fontSize: 13, color: "#4b5563", marginTop: 8 },
   cardValue: { fontSize: 18, fontWeight: "bold", color: "#15803d", marginTop: 5 },
 });
