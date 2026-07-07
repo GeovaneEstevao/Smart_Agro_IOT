@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -11,19 +11,52 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import { API_URL } from "../config";
 
 const maxWidth = 480; // largura máxima para telas maiores
 
 export default function SensorsScreen() {
-  const [sensores, setSensores] = useState([
-    { id: 1, nome: "Temperatura", unidade: "°C", valor: 28.5 },
-    { id: 2, nome: "Umidade do Solo", unidade: "%", valor: 45 },
-    { id: 3, nome: "Umidade do Ar", unidade: "%", valor: 65 },
-    { id: 4, nome: "Nível de Água", unidade: "%", valor: 80 },
-  ]);
+  const [sensores, setSensores] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   const [novoSensorNome, setNovoSensorNome] = useState("");
   const [novaUnidade, setNovaUnidade] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    const carregarSensores = async () => {
+      try {
+        const response = await fetch(`${API_URL}/sensores/atual`);
+        const data = await response.json();
+
+        if (!active) return;
+
+        const lista = Object.entries(data || {}).map(([key, item]) => ({
+          id: key,
+          nome: item?.nome || key,
+          unidade: item?.unidade || "",
+          valor: item?.valor ?? "—",
+        }));
+
+        setSensores(lista);
+      } catch (error) {
+        console.warn("Erro ao buscar sensores do backend", error);
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    };
+
+    carregarSensores();
+    const intervalId = setInterval(carregarSensores, 5000);
+
+    return () => {
+      active = false;
+      clearInterval(intervalId);
+    };
+  }, []);
 
   const adicionarSensor = () => {
     if (!novoSensorNome.trim() || !novaUnidade.trim()) {
@@ -70,9 +103,11 @@ export default function SensorsScreen() {
         <View style={styles.content}>
           <Text style={styles.title}>Sensores do Sistema</Text>
 
-          {sensores.length === 0 && (
+          {loading ? (
+            <Text style={styles.emptyText}>Carregando leituras...</Text>
+          ) : sensores.length === 0 ? (
             <Text style={styles.emptyText}>Nenhum sensor cadastrado.</Text>
-          )}
+          ) : null}
 
           {sensores.map(({ id, nome, unidade, valor }) => (
             <View key={id} style={styles.card}>
