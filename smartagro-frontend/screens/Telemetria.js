@@ -1,25 +1,25 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 // Certifique-se de ter instalado com: npm install mqtt
 import init from "mqtt"; 
 
 export default function Telemetria() {
+  const [clientMqtt, setClientMqtt] = useState(null); // Armazena o cliente MQTT para envio de dados
+
   const [dados, setDados] = useState({
     temp: "---",
     hum: "---",
     soil_pct: "---",
     water_pct: "---",
-    pump: false,
+    pump: false, // Estado do relé/bomba: false = Desligado, true = Ligado
     mode: "AUTO",
   });
 
   const [statusConexao, setStatusConexao] = useState("Iniciando...");
 
   useEffect(() => {
-    // 🖥️ Como você está no PC, o navegador precisa usar o protocolo "ws" (WebSocket)
-    // Apontamos para o IP do seu Broker. A porta de WebSockets padrão do Mosquitto é a 9001.
     const brokerUrl = "ws://10.44.1.35:9001"; 
     const clientId = "rn_pc_agro_" + Math.random().toString(16).substring(2, 10);
 
@@ -32,11 +32,11 @@ export default function Telemetria() {
       reconnectPeriod: 2000
     });
 
+    setClientMqtt(client);
+
     client.on("connect", () => {
       setStatusConexao("Conectado ao Broker");
       console.log("%c[MQTT] SUCESSO: Conectado com o Broker no PC!", "color: #4ade80; font-weight: bold;");
-      
-      // Inscreve em toda a árvore do SmartAgro para garantir que tudo chegue
       client.subscribe("ifrn/SmartAgro/#", (err) => {
         if (!err) {
           console.log("[MQTT] Escutando todos os tópicos do SmartAgro.");
@@ -46,8 +46,7 @@ export default function Telemetria() {
 
     client.on("message", (topic, message) => {
       const valor = message.toString();
-      
-      // IMPORTANTE: Abra o F12 do navegador para ver esse log rodando em tempo real!
+
       console.log(`📡 [DADO REAL DO ESP] Tópico: ${topic} | Valor: ${valor}`);
 
       setDados((dadosAnteriores) => {
@@ -60,6 +59,9 @@ export default function Telemetria() {
             return { ...dadosAnteriores, soil_pct: valor };
           case "ifrn/SmartAgro/distancia_cm":
             return { ...dadosAnteriores, water_pct: valor };
+          case "ifrn/SmartAgro/bomba": // Escuta o retorno de status do relé físico
+          case "ifrn/SmartAgro/rele":
+            return { ...dadosAnteriores, pump: valor === "ON" };
           case "ifrn/SmartAgro/alerta":
             return { ...dadosAnteriores, pump: valor === "PROXIMO" };
           default:
@@ -82,6 +84,19 @@ export default function Telemetria() {
     };
   }, []);
 
+  const alternarBomba = () => {
+  if (!clientMqtt || statusConexao !== "Conectado ao Broker") return;
+
+  const novoEstado = !dados.pump;
+  
+  // ALGUNS RELÉS SÓ ACEITAM "0" (LIGAR) E "1" (DESLIGAR) NO MQTT
+  const comando = novoEstado ? "0" : "1"; 
+
+  clientMqtt.publish("ifrn/SmartAgro/bomba", comando, { qos: 1 });
+  
+  setDados((ant) => ({ ...ant, pump: novoEstado }));
+};
+
   const renderCard = (icon, label, value, unit = "") => (
     <View style={styles.card} key={label}>
       <Ionicons name={icon} size={28} color="#16a34a" />
@@ -96,7 +111,7 @@ export default function Telemetria() {
   return (
     <LinearGradient colors={["#16a34a", "#15803d"]} style={styles.gradient}>
       <ScrollView contentContainerStyle={styles.container}>
-        <Text style={styles.title}>📡 Telemetria Real-Time</Text>
+        <Text style={styles.title}>📡 Telemetria</Text>
         
         <View style={styles.statusBadge}>
           {statusConexao === "Conectado ao Broker" ? (
@@ -112,7 +127,30 @@ export default function Telemetria() {
           {renderCard("water-outline", "Umidade Ar", dados.hum, " %")}
           {renderCard("leaf-outline", "Umidade Solo", dados.soil_pct, " %")}
           {renderCard("cube-outline", "Distância", dados.water_pct, " cm")}
-          {renderCard("power-outline", "Bomba / Alerta", dados.pump ? "Ligada" : "Desligada")}
+          
+          {/* COMPONENTE INTERATIVO DO RELÉ (ALTERA A BORDA E O ÍCONE) */}
+          <TouchableOpacity 
+            style={[
+              styles.card, 
+              dados.pump ? styles.cardPumpOn : styles.cardPumpOff
+            ]} 
+            onPress={alternarBomba}
+            activeOpacity={0.7}
+          >
+            {/* O ícone muda de cor junto com o acionamento do relé físico */}
+            <Ionicons 
+              name="power-outline" 
+              size={28} 
+              color={dados.pump ? "#16a34a" : "#dc2626"} 
+            />
+            <Text style={styles.cardLabel}>Bomba / Relé</Text>
+            
+            {/* O texto exibe o status e muda a cor para casar com o LED do módulo */}
+            <Text style={[styles.cardValue, dados.pump ? styles.textGreen : styles.textRed]}>
+              {dados.pump ? "Ligada 🟢" : "Desligada 🔴"}
+            </Text>
+          </TouchableOpacity>
+
           {renderCard("cog-outline", "Modo", dados.mode.toUpperCase())}
         </View>
       </ScrollView>
@@ -145,7 +183,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 15,
     elevation: 3,
+    borderWidth: 1.5,
+    borderColor: "transparent",
+  },
+  
+  // ESTILOS DE COR DA LUZ DO COMPONENTE DO RELÉ
+  cardPumpOn: {
+    backgroundColor: "#fff",
+    borderColor: "#16a34a", // Contorno verde ao ligar
+  },
+  cardPumpOff: {
+    backgroundColor: "#fff",
+    borderColor: "#dc2626", // Contorno vermelho ao desligar
   },
   cardLabel: { fontSize: 13, color: "#4b5563", marginTop: 8 },
-  cardValue: { fontSize: 18, fontWeight: "bold", color: "#15803d", marginTop: 5 },
+  cardValue: { fontSize: 18, fontWeight: "bold", marginTop: 5 },
+  
+  // Cores dinâmicas para o texto de status
+  textGreen: { color: "#16a34a" },
+  textRed: { color: "#dc2626" },
 });
